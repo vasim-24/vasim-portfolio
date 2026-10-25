@@ -1,0 +1,31 @@
+# Dependencies & build outputs
+node_modules/
+dist/
+.vercel/
+
+# Environment files and credentials
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Temporary/scratch development files
+scratch_*
+check_*
+test-*
+test_*
+!test_audio.wav
+
+# Heavy intermediate frame caches & backups (>600MB)
+temp_raw_frames/
+temp_raw_frames_backup/
+ezgif_backup_720p/
+
+# 4K video renders (>50MB GitHub warning threshold)
+*_4k.mp4
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
