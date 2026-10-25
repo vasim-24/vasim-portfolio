@@ -107,7 +107,6 @@
       opacity: 0;
       transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1);
       z-index: 2;
-      filter: contrast(1.05) brightness(0.98) saturate(1.04);
       transform: translateZ(0);
       will-change: transform;
     }
@@ -124,10 +123,8 @@
       height: 100vh;
       will-change: transform, opacity;
       image-rendering: -webkit-optimize-contrast;
-      image-rendering: high-quality;
       transform: translateZ(0);
       backface-visibility: hidden;
-      filter: contrast(1.05) brightness(0.98) saturate(1.04);
       z-index: 3;
       opacity: 0;
       transition: opacity 0.35s ease;
@@ -182,8 +179,8 @@
       inset: 0;
       background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.045'/%3E%3C/svg%3E");
       pointer-events: none;
-      opacity: 0.32;
-      mix-blend-mode: overlay;
+      opacity: 0.16;
+      transform: translateZ(0);
       z-index: 6;
     }
 
@@ -428,7 +425,7 @@
       pointer-events: none !important;
       visibility: hidden !important;
       z-index: 1 !important;
-      transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+      contain: layout style;
     }
 
     .scrolly-section:not(.is-active) * {
@@ -782,7 +779,7 @@
       box-shadow: 0 0 24px rgba(255, 255, 255, 0.45);
       transform-origin: left center;
       transform: scaleX(0);
-      transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+      will-change: transform;
     }
 
     /* 01 Core Expertise Statement Oversized Typography */
@@ -820,7 +817,6 @@
       transform: translateY(115%);
       opacity: 0;
       will-change: transform, opacity;
-      transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease-out;
     }
 
     /* TASK-2: ATTRACTIVE COLOUR GRADES & BOLD FONTS */
@@ -971,7 +967,7 @@
       box-shadow: 0 0 24px rgba(255, 30, 56, 0.55);
       transform-origin: left center;
       transform: scaleX(0);
-      transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+      will-change: transform;
     }
 
     /* Tamil Kalam Typography in Full Screen (Attractive Color Grade) */
@@ -2041,11 +2037,16 @@
             }
           }
           draw() {
+            const a = Math.max(0.1, Math.min(1, this.alpha));
+            // High-efficiency two-pass concentric glow (eliminates costly Gaussian shadowBlur)
+            eCtx.beginPath();
+            eCtx.arc(this.x, this.y, this.radius * 2.2, 0, Math.PI * 2);
+            eCtx.fillStyle = `hsla(${this.hue}, 95%, 62%, ${(a * 0.28).toFixed(2)})`;
+            eCtx.fill();
+
             eCtx.beginPath();
             eCtx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-            eCtx.fillStyle = `hsla(${this.hue}, 95%, 62%, ${Math.max(0.1, Math.min(1, this.alpha))})`;
-            eCtx.shadowBlur = 10;
-            eCtx.shadowColor = `hsl(${this.hue}, 95%, 50%)`;
+            eCtx.fillStyle = `hsla(${this.hue}, 95%, 68%, ${a.toFixed(2)})`;
             eCtx.fill();
           }
         }
@@ -2053,10 +2054,12 @@
         for (let i = 0; i < EMBER_COUNT; i++) embers.push(new Ember());
 
         function animateEmbers() {
-          eCtx.clearRect(0, 0, embersCanvas.width, embersCanvas.height);
-          for (let i = 0; i < embers.length; i++) {
-            embers[i].update();
-            embers[i].draw();
+          if (!document.hidden && !prefersReducedMotion) {
+            eCtx.clearRect(0, 0, embersCanvas.width, embersCanvas.height);
+            for (let i = 0; i < embers.length; i++) {
+              embers[i].update();
+              embers[i].draw();
+            }
           }
           requestAnimationFrame(animateEmbers);
         }
@@ -2085,7 +2088,7 @@
       }
 
       // Adaptive Resolution & High-DPI Quality System (Item 1 & 10)
-      const maxPracticalDPR = Math.min(window.devicePixelRatio || 1, 3);
+      const maxPracticalDPR = Math.min(window.devicePixelRatio || 1, 1.5);
       let currentDPR = maxPracticalDPR;
       let isThrottled = false;
       let frameTimes = [];
@@ -2217,6 +2220,8 @@
       let isScrolling = false;
       let scrollTimer = null;
 
+      let videoSyncTimer = null;
+
       // Target update based on scroll progress (0.0 to 1.0)
       function updateTarget(progress) {
         scrollProgress = Math.max(0, Math.min(1, progress));
@@ -2227,14 +2232,6 @@
           scrollProgressLine.style.width = (scrollProgress * 100).toFixed(1) + '%';
         }
 
-        // Align background video timeline to scroll progress
-        if (bgVideo && bgVideo.duration) {
-          const targetTime = scrollProgress * bgVideo.duration;
-          if (Math.abs(bgVideo.currentTime - targetTime) > 0.15) {
-            bgVideo.currentTime = targetTime;
-          }
-        }
-
         // Crossfade sequence canvas during active scrub for instant frame precision
         if (canvas) {
           canvas.classList.add('is-active');
@@ -2243,19 +2240,22 @@
             if (bgVideo && !bgVideo.paused) {
               canvas.classList.remove('is-active');
             }
-          }, 800);
+          }, 600);
+        }
+
+        // Align background video timeline when scrubbing settles (eliminates hardware video decoder stalls)
+        if (bgVideo && bgVideo.duration) {
+          clearTimeout(videoSyncTimer);
+          videoSyncTimer = setTimeout(() => {
+            const targetTime = scrollProgress * bgVideo.duration;
+            if (Math.abs(bgVideo.currentTime - targetTime) > 0.25) {
+              bgVideo.currentTime = targetTime;
+            }
+          }, 150);
         }
 
         // Update sections active state
         updateSectionsState(scrollProgress);
-
-        // Update philosophy scroll synchronization immediately on scroll
-        updatePhilosophyScroll(scrollProgress);
-
-        // Update works side scrolling synchronization immediately on scroll
-        if (typeof updateWorksSideScroll === 'function') {
-          updateWorksSideScroll(scrollProgress);
-        }
       }
 
       // Mathematical Cubic Easing for cinematic scroll reveals
@@ -2269,7 +2269,12 @@
       const expertiseBeamLine = document.querySelector('.expertise-beam-line');
       const philosophyBeamLine = document.querySelector('.philosophy-beam-line');
 
+      let lastPhilProgress = -1;
+
       function updatePhilosophyScroll(progress) {
+        if (Math.abs(progress - lastPhilProgress) < 0.0004) return;
+        lastPhilProgress = progress;
+
         // Animate 01 Core Expertise brutalist beam line
         if (expertiseBeamLine) {
           const beamP = Math.max(0, Math.min(1, (progress - 0.22) / 0.08));
@@ -2283,32 +2288,34 @@
         }
 
         if (prefersReducedMotion) {
-          philosophyWords.forEach(w => { w.style.transform = 'translateY(0)'; w.style.opacity = '1'; });
-          kalamWords.forEach(w => { w.style.transform = 'translateY(0)'; w.style.opacity = '1'; });
           return;
         }
 
-        // 01 Steve Jobs Headline reveal window: 0.22 to 0.38
-        const headlineP = Math.max(0, Math.min(1, (progress - 0.22) / 0.14));
-        philosophyWords.forEach((word, idx) => {
-          const wordStart = idx * 0.06;
-          const wordProgress = Math.max(0, Math.min(1, (headlineP - wordStart) / 0.30));
-          const ease = easeOutCubic(wordProgress);
-          const transY = (1 - ease) * 115;
-          word.style.transform = `translateY(${transY.toFixed(1)}%)`;
-          word.style.opacity = ease.toFixed(3);
-        });
+        // 01 Steve Jobs Headline reveal window: 0.16 to 0.44
+        if (progress >= 0.16 && progress <= 0.44) {
+          const headlineP = Math.max(0, Math.min(1, (progress - 0.22) / 0.14));
+          philosophyWords.forEach((word, idx) => {
+            const wordStart = idx * 0.06;
+            const wordProgress = Math.max(0, Math.min(1, (headlineP - wordStart) / 0.30));
+            const ease = easeOutCubic(wordProgress);
+            const transY = (1 - ease) * 115;
+            word.style.transform = `translateY(${transY.toFixed(1)}%)`;
+            word.style.opacity = ease.toFixed(3);
+          });
+        }
 
-        // 02 Philosophy Kalam reveal window: 0.40 to 0.55
-        const kalamP = Math.max(0, Math.min(1, (progress - 0.40) / 0.14));
-        kalamWords.forEach((word, idx) => {
-          const wordStart = idx * 0.08;
-          const wordProgress = Math.max(0, Math.min(1, (kalamP - wordStart) / 0.30));
-          const ease = easeOutCubic(wordProgress);
-          const transY = (1 - ease) * 115;
-          word.style.transform = `translateY(${transY.toFixed(1)}%)`;
-          word.style.opacity = ease.toFixed(3);
-        });
+        // 02 Philosophy Kalam reveal window: 0.34 to 0.62
+        if (progress >= 0.34 && progress <= 0.62) {
+          const kalamP = Math.max(0, Math.min(1, (progress - 0.40) / 0.14));
+          kalamWords.forEach((word, idx) => {
+            const wordStart = idx * 0.08;
+            const wordProgress = Math.max(0, Math.min(1, (kalamP - wordStart) / 0.30));
+            const ease = easeOutCubic(wordProgress);
+            const transY = (1 - ease) * 115;
+            word.style.transform = `translateY(${transY.toFixed(1)}%)`;
+            word.style.opacity = ease.toFixed(3);
+          });
+        }
 
         // Auto-scramble crimson phrases once when user enters 01 Core Expertise full screen
         if (progress >= 0.25 && progress <= 0.38 && !hasExpertiseAutoScrambled) {
@@ -2611,30 +2618,44 @@
         }
       }
 
+      let lastSectionProgress = -1;
+      let lastActiveSecId = '';
+
       // Update Section Visibility & Opacity based on scroll progress
       function updateSectionsState(progress) {
+        if (Math.abs(progress - lastSectionProgress) < 0.002) return;
+        lastSectionProgress = progress;
+
         sections.forEach((sec) => {
           const start = parseFloat(sec.getAttribute('data-start'));
           const end = parseFloat(sec.getAttribute('data-end'));
 
           if (progress >= start && progress < end) {
-            sec.classList.add('is-active');
-            sec.style.visibility = 'visible';
-            sec.style.pointerEvents = 'auto';
-            sec.style.zIndex = '20';
+            if (!sec.classList.contains('is-active')) {
+              sec.classList.add('is-active');
+              sec.style.visibility = 'visible';
+              sec.style.pointerEvents = 'auto';
+              sec.style.zIndex = '20';
+            }
 
             // Determine active section title
             const secId = sec.id;
-            if (secId === 'section-about') {
-              activeSectionTitle = "Mohammed Vasim | Core Expertise";
-            } else if (secId === 'section-philosophy') {
-              activeSectionTitle = "Mohammed Vasim | Philosophy";
-            } else if (secId === 'section-works') {
-              activeSectionTitle = "Mohammed Vasim | Works";
-            } else if (secId === 'section-contact') {
-              activeSectionTitle = "Mohammed Vasim | Connect";
-            } else {
-              activeSectionTitle = "Mohammed Vasim | Web Designer & UI/UX Creator";
+            if (secId !== lastActiveSecId) {
+              lastActiveSecId = secId;
+              if (secId === 'section-about') {
+                activeSectionTitle = "Mohammed Vasim | Core Expertise";
+              } else if (secId === 'section-philosophy') {
+                activeSectionTitle = "Mohammed Vasim | Philosophy";
+              } else if (secId === 'section-works') {
+                activeSectionTitle = "Mohammed Vasim | Works";
+              } else if (secId === 'section-contact') {
+                activeSectionTitle = "Mohammed Vasim | Connect";
+              } else {
+                activeSectionTitle = "Mohammed Vasim | Web Designer & UI/UX Creator";
+              }
+              if (!isUserHoveringNav) {
+                updateBrowserTabTitle(activeSectionTitle);
+              }
             }
 
             // Smooth inner fade in/out near section boundaries
@@ -2642,37 +2663,28 @@
             const span = (end - start) / 2;
             const dist = Math.abs(progress - mid);
             const factor = Math.max(0, 1 - dist / span);
-            sec.style.opacity = Math.min(1, factor * 1.5);
+            sec.style.opacity = Math.min(1, factor * 1.5).toFixed(2);
           } else {
-            sec.classList.remove('is-active');
-            sec.style.visibility = 'hidden';
-            sec.style.pointerEvents = 'none';
-            sec.style.zIndex = '1';
-            sec.style.opacity = 0;
+            if (sec.classList.contains('is-active') || sec.style.opacity !== '0') {
+              sec.classList.remove('is-active');
+              sec.style.visibility = 'hidden';
+              sec.style.pointerEvents = 'none';
+              sec.style.zIndex = '1';
+              sec.style.opacity = '0';
+            }
           }
         });
-
-        // Update tab title if user is not hovering over another element
-        if (!isUserHoveringNav) {
-          updateBrowserTabTitle(activeSectionTitle);
-        }
 
         // Update nav active tab indicator (About tab covers 0.20 to 0.58)
         navButtons.forEach((btn) => {
           const sec = btn.getAttribute('data-section');
           if (sec === 'About') {
-            if (progress >= 0.20 && progress < 0.58) {
-              btn.classList.add('active');
-            } else {
-              btn.classList.remove('active');
-            }
+            const isActive = progress >= 0.20 && progress < 0.58;
+            btn.classList.toggle('active', isActive);
           } else {
             const target = parseFloat(btn.getAttribute('data-target'));
-            if (Math.abs(progress - target) < 0.16) {
-              btn.classList.add('active');
-            } else {
-              btn.classList.remove('active');
-            }
+            const isActive = Math.abs(progress - target) < 0.16;
+            btn.classList.toggle('active', isActive);
           }
         });
       }
@@ -2709,12 +2721,10 @@
       function updateWorksSideScroll(progress) {
         if (!worksTrack || !worksViewport) return;
 
-        // Measure track translation range
-        let maxTranslate = 0;
-        if (worksTrack.scrollWidth > worksViewport.clientWidth) {
-          maxTranslate = worksTrack.scrollWidth - worksViewport.clientWidth;
-          cachedMaxTranslate = maxTranslate;
-        } else if (cachedMaxTranslate > 0) {
+        // Use cached translation range (eliminates synchronous DOM layout thrashing)
+        let maxTranslate = cachedMaxTranslate;
+        if (maxTranslate <= 0) {
+          measureWorksSlider();
           maxTranslate = cachedMaxTranslate;
         }
 
@@ -2728,28 +2738,25 @@
         targetTrackTranslate = -(worksRatio * maxTranslate);
 
         // Sub-frame smooth lerp for 60fps fluid gliding
-        currentTrackTranslate += (targetTrackTranslate - currentTrackTranslate) * 0.16;
-        if (Math.abs(targetTrackTranslate - currentTrackTranslate) < 0.1) {
-          currentTrackTranslate = targetTrackTranslate;
+        const delta = targetTrackTranslate - currentTrackTranslate;
+        if (Math.abs(delta) > 0.05) {
+          currentTrackTranslate += delta * 0.18;
+          worksTrack.style.transform = `translate3d(${currentTrackTranslate.toFixed(1)}px, 0, 0)`;
         }
-
-        worksTrack.style.transform = `translate3d(${currentTrackTranslate.toFixed(1)}px, 0, 0)`;
 
         // Determine active slide index (0, 1, 2)
         const activeIdx = worksRatio < 0.33 ? 0 : (worksRatio < 0.67 ? 1 : 2);
         if (activeIdx !== currentWorkIndex) {
           currentWorkIndex = activeIdx;
+          // Synchronize dots only when active index changes
+          worksDots.forEach((dot, idx) => {
+            dot.classList.toggle('active', idx === currentWorkIndex);
+          });
+          // Dynamic card focus highlights only when active index changes
+          workCards.forEach((card, idx) => {
+            card.classList.toggle('is-focused', idx === currentWorkIndex);
+          });
         }
-
-        // Synchronize dots
-        worksDots.forEach((dot, idx) => {
-          dot.classList.toggle('active', idx === currentWorkIndex);
-        });
-
-        // Dynamic card focus highlights
-        workCards.forEach((card, idx) => {
-          card.classList.toggle('is-focused', idx === currentWorkIndex);
-        });
       }
 
       // Smooth slide navigation helper
@@ -2832,13 +2839,14 @@
       let lenis = null;
       if (typeof Lenis !== 'undefined') {
         lenis = new Lenis({
-          duration: 1.2,
+          duration: 1.0,
           easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
           orientation: 'vertical',
           gestureOrientation: 'vertical',
           smoothWheel: true,
-          wheelMultiplier: 1.05,
-          touchMultiplier: 1.5,
+          wheelMultiplier: 1.0,
+          touchMultiplier: 1.0,
+          syncTouch: true,
         });
 
         lenis.on('scroll', ({ progress }) => {
@@ -3013,13 +3021,15 @@
         audioToggleBtn.addEventListener('click', toggleAudio);
       }
 
+      let lastParallaxProgress = -1;
+
       // 60 FPS RequestAnimationFrame Lerp Loop with Adaptive Performance Monitor
       function rafLoop(time) {
         if (lenis) {
           lenis.raf(time);
         }
 
-        // Performance Monitor & Adaptive Resolution Throttling (Quality Requirement 10)
+        // Performance Monitor & Adaptive Resolution Throttling
         const frameDelta = time - lastTimestamp;
         lastTimestamp = time;
         if (frameDelta > 0 && frameDelta < 250) {
@@ -3035,10 +3045,9 @@
           // Adaptive performance: throttle internal resolution if device struggles below 46 FPS
           if (currentFps < 46 && !isThrottled) {
             isThrottled = true;
-            currentDPR = Math.max(1.0, maxPracticalDPR * 0.65);
+            currentDPR = Math.max(1.0, maxPracticalDPR * 0.7);
             resizeCanvas(currentDPR);
           } else if (currentFps >= 56 && isThrottled) {
-            // Restore full native high-DPI quality when device is running smoothly
             isThrottled = false;
             currentDPR = maxPracticalDPR;
             resizeCanvas(currentDPR);
@@ -3047,7 +3056,8 @@
 
         // Sub-frame lerp towards target for buttery 60fps motion
         const delta = targetFrame - currentFrame;
-        if (Math.abs(delta) > 0.0001) {
+        const isLerping = Math.abs(delta) > 0.0001;
+        if (isLerping) {
           currentFrame += delta * 0.14;
         } else {
           currentFrame = targetFrame;
@@ -3056,22 +3066,20 @@
         // Smooth normalized progress for 60fps sub-frame animations
         const smoothProgress = (currentFrame - 1) / (TOTAL_FRAMES - 1);
 
-        // Subtle portrait parallax & gradual scaling tied to scroll progress
-        if (canvas) {
+        // Subtle portrait parallax & gradual scaling - skip if progress hasn't moved
+        if (Math.abs(smoothProgress - lastParallaxProgress) > 0.0002) {
+          lastParallaxProgress = smoothProgress;
           const parallaxScale = (1.0 + smoothProgress * 0.038).toFixed(4);
           const parallaxY = (smoothProgress * -18).toFixed(2);
-          canvas.style.transform = `scale(${parallaxScale}) translateY(${parallaxY}px) translateZ(0)`;
-        }
-        if (bgVideo) {
-          const parallaxScale = (1.0 + smoothProgress * 0.038).toFixed(4);
-          const parallaxY = (smoothProgress * -18).toFixed(2);
-          bgVideo.style.transform = `scale(${parallaxScale}) translateY(${parallaxY}px) translateZ(0)`;
+          const transformStr = `scale(${parallaxScale}) translateY(${parallaxY}px) translateZ(0)`;
+          if (canvas) canvas.style.transform = transformStr;
+          if (bgVideo) bgVideo.style.transform = transformStr;
+
+          // Synchronize philosophy typography
+          updatePhilosophyScroll(smoothProgress);
         }
 
-        // Synchronize philosophy typography, divider & card reveals on each animation frame
-        updatePhilosophyScroll(smoothProgress);
-
-        // Synchronize works smooth side scrolling on each animation frame (60 FPS)
+        // Synchronize works smooth side scrolling
         if (typeof updateWorksSideScroll === 'function') {
           updateWorksSideScroll(smoothProgress);
         }
@@ -3086,7 +3094,7 @@
             hudFrameNum.textContent = `${String(targetIndex).padStart(3, '0')} / ${TOTAL_FRAMES}`;
           }
           if (hudPercent) {
-            const qualityTag = isThrottled ? 'Adaptive 60fps' : (currentDPR >= 2 ? '4K/Retina Ultra HD' : 'Full HD Crisp');
+            const qualityTag = isThrottled ? 'Adaptive 60fps' : (currentDPR >= 1.5 ? 'Ultra HD Crisp' : 'High Performance');
             hudPercent.textContent = `${Math.round(scrollProgress * 100)}% • ${qualityTag}`;
           }
         }
